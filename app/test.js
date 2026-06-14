@@ -76,11 +76,10 @@ async function runTest(test) {
     });
 }
 
+// Replace the last few lines of test.js with this:
+
 async function runAllTests() {
-    // Start server in background
     const server = require('./server.js');
-    
-    // Wait for server to start
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     for (const test of tests) {
@@ -91,7 +90,11 @@ async function runAllTests() {
     console.log(`Tests completed: ${passed} passed, ${failed} failed`);
     console.log(`${'='.repeat(40)}`);
 
-    process.exit(failed > 0 ? 1 : 0);
+    // Gracefully close server
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(failed > 0 ? 1 : 0);
+    });
 }
 
 runAllTests();
