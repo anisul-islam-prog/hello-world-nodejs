@@ -45,7 +45,6 @@ pipeline {
             }
             post {
                 always {
-                    // Kill any lingering node processes from tests
                     sh 'pkill -f "node server.js" || true'
                     echo "Tests completed"
                 }
@@ -66,14 +65,22 @@ pipeline {
                 }
                 dir('app') {
                     sh '''
-                        mkdir -p ../deploy
-                        cp -r . ../deploy/
-                        cd ../deploy
-                        # Stop any running node process before tar
+                        # Create deploy directory outside workspace if possible, or use temp
+                        mkdir -p /tmp/deploy
+                        cp -r . /tmp/deploy/
+                        
+                        # Kill any lingering node process
                         pkill -f "node server.js" || true
                         sleep 1
-                        tar -czf app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz .
-                        ls -lah *.tar.gz
+                        
+                        # Create tar in workspace root (outside the directory being archived)
+                        cd /tmp/deploy
+                        tar -czf ${WORKSPACE}/app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz .
+                        
+                        # Move to expected location for deploy stage
+                        mv ${WORKSPACE}/app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz ${WORKSPACE}/deploy/
+                        
+                        ls -lah ${WORKSPACE}/deploy/
                     '''
                 }
             }
