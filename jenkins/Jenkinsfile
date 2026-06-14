@@ -4,8 +4,8 @@ pipeline {
     environment {
         NODE_ENV = 'production'
         APP_DIR = '/opt/app'
-        APP_SERVER_IP = credentials('app-server-ip')  // Store in Jenkins credentials
-        SSH_KEY = credentials('app-server-ssh-key')   // Store private key in Jenkins
+        APP_SERVER_IP = credentials('app-server-ip')
+        SSH_KEY = credentials('app-server-ssh-key')
     }
     
     options {
@@ -18,19 +18,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 cleanWs()
-                git branch: 'main', 
-                    url: 'https://github.com/YOUR_USERNAME/assignment-13-app.git'
-                
-                script {
-                    env.GIT_COMMIT_SHORT = sh(
-                        script: 'git rev-parse --short HEAD',
-                        returnStdout: true
-                    ).trim()
-                    env.BUILD_TIMESTAMP = sh(
-                        script: 'date +%Y%m%d-%H%M%S',
-                        returnStdout: true
-                    ).trim()
-                }
+                checkout scm  // Uses repo from Jenkins job config automatically
             }
         }
         
@@ -57,7 +45,6 @@ pipeline {
             }
             post {
                 always {
-                    // Archive test results if you add a test reporter later
                     echo "Tests completed"
                 }
             }
@@ -67,7 +54,6 @@ pipeline {
             steps {
                 dir('app') {
                     sh '''
-                        # Create deployment package
                         mkdir -p ../deploy
                         cp -r . ../deploy/
                         cd ../deploy
@@ -88,51 +74,41 @@ pipeline {
                     )
                 ]) {
                     sh '''
-                        # Set proper permissions for SSH key
                         chmod 600 $SSH_KEY_FILE
                         
-                        # Create deployment directory on app server
                         ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
                             $SSH_USER@$APP_SERVER_IP \
                             "sudo mkdir -p /opt/app && sudo chown $SSH_USER:$SSH_USER /opt/app"
                         
-                        # Copy artifact to app server
                         scp -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
                             deploy/app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz \
                             $SSH_USER@$APP_SERVER_IP:/tmp/
                         
-                        # Extract and deploy
                         ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
-                            $SSH_USER@$APP_SERVER_IP << EOF
+                            $SSH_USER@$APP_SERVER_IP << 'DEPLOYEOF'
                             set -e
                             cd /opt/app
                             
-                            # Backup current version
                             if [ -f server.js ]; then
                                 tar -czf backup-$(date +%Y%m%d-%H%M%S).tar.gz . 2>/dev/null || true
                             fi
                             
-                            # Extract new version
                             rm -rf node_modules package-lock.json
                             tar -xzf /tmp/app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz
                             
-                            # Install production dependencies
                             npm ci --production
                             
-                            # Restart application using PM2 or systemd
                             if command -v pm2 &> /dev/null; then
                                 pm2 restart server.js || pm2 start server.js --name assignment-13-app
                                 pm2 save
                             else
-                                # Fallback: use nohup
                                 pkill -f "node server.js" || true
                                 nohup node server.js > /var/log/app.log 2>&1 &
                             fi
                             
-                            # Verify deployment
                             sleep 2
                             curl -f http://localhost:3000/health || exit 1
-EOF
+DEPLOYEOF
                         
                         echo "Deployment completed successfully!"
                     '''
