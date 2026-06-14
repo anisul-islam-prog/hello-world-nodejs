@@ -18,7 +18,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 cleanWs()
-                checkout scm  // Uses repo from Jenkins job config automatically
+                checkout scm
             }
         }
         
@@ -45,6 +45,8 @@ pipeline {
             }
             post {
                 always {
+                    // Kill any lingering node processes from tests
+                    sh 'pkill -f "node server.js" || true'
                     echo "Tests completed"
                 }
             }
@@ -52,11 +54,24 @@ pipeline {
         
         stage('Build Artifact') {
             steps {
+                script {
+                    env.BUILD_TIMESTAMP = sh(
+                        script: 'date +%Y%m%d-%H%M%S',
+                        returnStdout: true
+                    ).trim()
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git -C app rev-parse --short HEAD || git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                }
                 dir('app') {
                     sh '''
                         mkdir -p ../deploy
                         cp -r . ../deploy/
                         cd ../deploy
+                        # Stop any running node process before tar
+                        pkill -f "node server.js" || true
+                        sleep 1
                         tar -czf app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz .
                         ls -lah *.tar.gz
                     '''
