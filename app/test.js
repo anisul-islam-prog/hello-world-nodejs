@@ -76,10 +76,11 @@ async function runTest(test) {
     });
 }
 
-// Replace the last few lines of test.js with this:
-
 async function runAllTests() {
+    // Start server
     const server = require('./server.js');
+    
+    // Wait for server to start
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     for (const test of tests) {
