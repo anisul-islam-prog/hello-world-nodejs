@@ -1,19 +1,19 @@
 pipeline {
     agent any
-    
+
     environment {
         NODE_ENV = 'production'
         APP_DIR = '/opt/app'
         APP_SERVER_IP = credentials('app-server-ip')
         SSH_KEY = credentials('app-server-ssh-key')
     }
-    
+
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         timeout(time: 15, unit: 'MINUTES')
         timestamps()
     }
-    
+
     stages {
         stage('Checkout') {
             steps {
@@ -21,7 +21,7 @@ pipeline {
                 checkout scm
             }
         }
-        
+
         stage('Install Dependencies') {
             steps {
                 dir('app') {
@@ -33,7 +33,7 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Run Tests') {
             steps {
                 dir('app') {
@@ -46,11 +46,11 @@ pipeline {
             post {
                 always {
                     sh 'pkill -f "node server.js" || true'
-                    echo "Tests completed"
+                    echo 'Tests completed'
                 }
             }
         }
-        
+
         stage('Build Artifact') {
             steps {
                 script {
@@ -68,21 +68,21 @@ pipeline {
                         # Create deploy directory at workspace root
                         mkdir -p ../deploy
                         cp -r . ../deploy/
-                        
+
                         # Kill any lingering node process
                         pkill -f "node server.js" || true
                         sleep 1
-                        
+
                         # Create tar file OUTSIDE the deploy directory
                         tar -czf ../app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz -C ../deploy .
-                        
+
                         # Verify
                         ls -lah ../app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz
                     '''
                 }
             }
         }
-        
+
         stage('Deploy to App Server') {
             steps {
                 withCredentials([
@@ -94,29 +94,31 @@ pipeline {
                 ]) {
                     sh '''
                         chmod 600 $SSH_KEY_FILE
-                        
+
                         ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
                             $SSH_USER@$APP_SERVER_IP \
                             "sudo mkdir -p /opt/app && sudo chown $SSH_USER:$SSH_USER /opt/app"
-                        
+
                         scp -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
                             app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz \
                             $SSH_USER@$APP_SERVER_IP:/tmp/
-                        
+
+                        # Pass variables explicitly via environment in SSH
                         ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
-                            $SSH_USER@$APP_SERVER_IP << 'DEPLOYEOF'
+                            $SSH_USER@$APP_SERVER_IP \
+                            "export BUILD_TIMESTAMP='${BUILD_TIMESTAMP}'; export GIT_COMMIT_SHORT='${GIT_COMMIT_SHORT}'; bash -s" << 'DEPLOYEOF'
                             set -e
                             cd /opt/app
-                            
+
                             if [ -f server.js ]; then
                                 tar -czf backup-$(date +%Y%m%d-%H%M%S).tar.gz . 2>/dev/null || true
                             fi
-                            
+
                             rm -rf node_modules package-lock.json
                             tar -xzf /tmp/app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz
-                            
+
                             npm ci --production
-                            
+
                             if command -v pm2 &> /dev/null; then
                                 pm2 restart server.js || pm2 start server.js --name assignment-13-app
                                 pm2 save
@@ -124,17 +126,17 @@ pipeline {
                                 pkill -f "node server.js" || true
                                 nohup node server.js > /var/log/app.log 2>&1 &
                             fi
-                            
+
                             sleep 2
                             curl -f http://localhost:3000/health || exit 1
-DEPLOYEOF
-                        
+        DEPLOYEOF
+
                         echo "Deployment completed successfully!"
                     '''
                 }
             }
         }
-        
+
         stage('Smoke Test') {
             steps {
                 sh '''
@@ -147,17 +149,17 @@ DEPLOYEOF
             }
         }
     }
-    
+
     post {
         always {
-            echo "Pipeline execution completed"
+            echo 'Pipeline execution completed'
             cleanWs()
         }
         success {
             echo "✅ Pipeline succeeded! Build #${BUILD_NUMBER}"
         }
         failure {
-            echo "❌ Pipeline failed! Check logs for details."
+            echo '❌ Pipeline failed! Check logs for details.'
         }
     }
 }
