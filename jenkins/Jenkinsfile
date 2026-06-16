@@ -101,12 +101,10 @@ pipeline {
 
                         scp -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
                             app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz \
-                            $SSH_USER@$APP_SERVER_IP:/tmp/
+                            $SSH_USER@$APP_SERVER_IP:/tmp/app.tar.gz
 
-                        # Pass variables explicitly via environment in SSH
                         ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
-                            $SSH_USER@$APP_SERVER_IP \
-                            "export BUILD_TIMESTAMP='${BUILD_TIMESTAMP}'; export GIT_COMMIT_SHORT='${GIT_COMMIT_SHORT}'; bash -s" << 'DEPLOYEOF'
+                            $SSH_USER@$APP_SERVER_IP << 'EOF'
                             set -e
                             cd /opt/app
 
@@ -115,21 +113,21 @@ pipeline {
                             fi
 
                             rm -rf node_modules package-lock.json
-                            tar -xzf /tmp/app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz
+                            tar -xzf /tmp/app.tar.gz
 
                             npm ci --production
 
                             if command -v pm2 &> /dev/null; then
-                                pm2 restart server.js || pm2 start server.js --name assignment-13-app
+                                pm2 restart assignment-13-app || pm2 start server.js --name assignment-13-app
                                 pm2 save
                             else
                                 pkill -f "node server.js" || true
-                                nohup node server.js > /var/log/app.log 2>&1 &
+                                nohup node server.js > /opt/app/app.log 2>&1 &
                             fi
 
                             sleep 2
                             curl -f http://localhost:3000/health || exit 1
-        DEPLOYEOF
+        EOF
 
                         echo "Deployment completed successfully!"
                     '''
