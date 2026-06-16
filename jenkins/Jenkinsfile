@@ -95,39 +95,50 @@ pipeline {
                     sh '''
                         chmod 600 $SSH_KEY_FILE
 
+                        # Ensure app directory exists on remote
                         ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
                             $SSH_USER@$APP_SERVER_IP \
                             "sudo mkdir -p /opt/app && sudo chown $SSH_USER:$SSH_USER /opt/app"
 
+                        # Copy artifact to remote
                         scp -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
                             app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz \
                             $SSH_USER@$APP_SERVER_IP:/tmp/app.tar.gz
 
+                        # Write deploy script locally then copy and execute
+                        cat > /tmp/deploy.sh << 'ENDSCRIPT'
+                    set -e
+                    cd /opt/app
+
+                    if [ -f server.js ]; then
+                        tar -czf backup-$(date +%Y%m%d-%H%M%S).tar.gz . 2>/dev/null || true
+                    fi
+
+                    rm -rf node_modules package-lock.json
+                    tar -xzf /tmp/app.tar.gz
+
+                    npm ci --production
+
+                    if command -v pm2 &> /dev/null; then
+                        pm2 restart assignment-13-app || pm2 start server.js --name assignment-13-app
+                        pm2 save
+                    else
+                        pkill -f "node server.js" || true
+                        nohup node server.js > /opt/app/app.log 2>&1 &
+                    fi
+
+                    sleep 2
+                    curl -f http://localhost:3000/health || exit 1
+                    ENDSCRIPT
+
+                        scp -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
+                            /tmp/deploy.sh $SSH_USER@$APP_SERVER_IP:/tmp/deploy.sh
+
                         ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
-                            $SSH_USER@$APP_SERVER_IP << 'EOF'
-                            set -e
-                            cd /opt/app
+                            $SSH_USER@$APP_SERVER_IP \
+                            "bash /tmp/deploy.sh"
 
-                            if [ -f server.js ]; then
-                                tar -czf backup-$(date +%Y%m%d-%H%M%S).tar.gz . 2>/dev/null || true
-                            fi
-
-                            rm -rf node_modules package-lock.json
-                            tar -xzf /tmp/app.tar.gz
-
-                            npm ci --production
-
-                            if command -v pm2 &> /dev/null; then
-                                pm2 restart assignment-13-app || pm2 start server.js --name assignment-13-app
-                                pm2 save
-                            else
-                                pkill -f "node server.js" || true
-                                nohup node server.js > /opt/app/app.log 2>&1 &
-                            fi
-
-                            sleep 2
-                            curl -f http://localhost:3000/health || exit 1
-        EOF
+                        rm -f /tmp/deploy.sh
 
                         echo "Deployment completed successfully!"
                     '''
