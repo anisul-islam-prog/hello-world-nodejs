@@ -65,22 +65,19 @@ pipeline {
                 }
                 dir('app') {
                     sh '''
-                        # Create deploy directory outside workspace if possible, or use temp
-                        mkdir -p /tmp/deploy
-                        cp -r . /tmp/deploy/
+                        # Create deploy directory at workspace root
+                        mkdir -p ../deploy
+                        cp -r . ../deploy/
                         
                         # Kill any lingering node process
                         pkill -f "node server.js" || true
                         sleep 1
                         
-                        # Create tar in workspace root (outside the directory being archived)
-                        cd /tmp/deploy
-                        tar -czf ${WORKSPACE}/app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz .
+                        # Create tar file OUTSIDE the deploy directory
+                        tar -czf ../app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz -C ../deploy .
                         
-                        # Move to expected location for deploy stage
-                        mv ${WORKSPACE}/app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz ${WORKSPACE}/deploy/
-                        
-                        ls -lah ${WORKSPACE}/deploy/
+                        # Verify
+                        ls -lah ../app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz
                     '''
                 }
             }
@@ -103,7 +100,7 @@ pipeline {
                             "sudo mkdir -p /opt/app && sudo chown $SSH_USER:$SSH_USER /opt/app"
                         
                         scp -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
-                            deploy/app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz \
+                            app-${BUILD_TIMESTAMP}-${GIT_COMMIT_SHORT}.tar.gz \
                             $SSH_USER@$APP_SERVER_IP:/tmp/
                         
                         ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no \
